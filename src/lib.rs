@@ -1,5 +1,5 @@
 use chrono::{DateTime, Utc};
-use http::header::{HeaderName, HeaderValue, AUTHORIZATION, DATE};
+use http::header::{HeaderName, HeaderValue};
 
 use hmac::{Hmac, Mac};
 use sha2::{Digest, Sha256};
@@ -7,13 +7,13 @@ use sha2::{Digest, Sha256};
 // Create alias for HMAC-SHA256
 type HmacSha256 = Hmac<Sha256>;
 
-fn body_digest(body: &[u8]) -> String {
+pub fn body_digest(body: &[u8]) -> String {
     let mut hasher = Sha256::default();
     hasher.input(body);
     base64::encode(&hasher.result())
 }
 
-fn signature(
+pub fn signature(
     // base64 encoded integration key
     key: &str,
     bytes_to_sign: &[u8],
@@ -25,7 +25,7 @@ fn signature(
     Ok(base64::encode(&mac.result().code()))
 }
 
-const KEY_ID_LEN: usize = 8;
+pub const KEY_ID_LEN: usize = 8;
 
 pub trait HttpSigExt: Sized {
     type Error;
@@ -40,14 +40,34 @@ pub trait HttpSigExt: Sized {
 #[cfg(feature = "reqwest_client")]
 mod reqwest {
     pub use super::*;
-    
+
     #[derive(Debug)]
     pub enum ReqwestSignatureError {
         KeyTooShort,
         KeyNotBase64(base64::DecodeError),
         UrlHostMissing,
+        MissingHeaderValue(http::header::HeaderName),
     }
 
+                fn get_header_value<'a>(
+                    req: &'a ::reqwest::Request,
+                    name: &HeaderName,
+                ) -> Option<HeaderValue> {
+                    let from_headers = req.headers().get(name).cloned();
+                    match name {
+                        HOST => from_headers.or_else(|| {
+                            req.url()
+                                .host_str()
+                                .map(HeaderValue::from_str)
+                                .and_then(Result::ok)
+
+                        }),
+                        header => from_headers,
+                    }
+                }
+
+
+    
     impl HttpSigExt for ::reqwest::Request {
         type Error = ReqwestSignatureError;
 
@@ -60,7 +80,6 @@ mod reqwest {
             if key.len() < KEY_ID_LEN {
                 return Err(ReqwestSignatureError::KeyTooShort);
             }
-
             let date = date.format("%a, %d %b %Y %T GMT").to_string();
 
             let digest = self.body().map(|body| {
@@ -77,14 +96,27 @@ mod reqwest {
             let path = self.url().path();
 
             let mut bytes_to_sign = format!(
-                r#"(request-target): {} {}
-host: {}
-date: {}"#,
+                "(request-target): {} {}\ndate: {}",
                 self.method().as_str().to_lowercase(),
                 path,
-                host,
                 date
             );
+            
+            for (header, value) in &headers {
+                let from_req = get_header_value(&self, &header);
+
+                let value: Option<&HeaderValue> = value.as_ref().or_else(|| from_req.as_ref());
+
+                //TODO: special casing for date, digest, etc.
+                bytes_to_sign.push_str(&format!(
+                    "\n{}: {}",
+                    header.as_str().to_lowercase(),
+                    value
+                        .ok_or_else(|| ReqwestSignatureError::MissingHeaderValue(header.clone()))?
+                        .to_str()
+                        .expect("Binary header value")
+                ));
+            }
 
             self.headers_mut().insert(
                 DATE,
@@ -104,12 +136,16 @@ date: {}"#,
                 );
             }
 
-            let signature = signature(key, bytes_to_sign.as_bytes())
+            let header_names = format!("(request-target) date {} digest", headers.iter().map(|(name, _)| name.as_str()).collect::<Vec<_>>().join(" "));
+            
+            let signature = signature(key, dbg!(bytes_to_sign).as_bytes())
                 .map_err(ReqwestSignatureError::KeyNotBase64)?;
+            
             let auth_header = format!(
-                r#"Signature keyId="{}",algorithm="hmac-sha256",signature="{}",headers="(request-target) host date digest"#,
+                r#"Signature keyId="{}",algorithm="hmac-sha256",signature="{}",headers="{}"#,
                 &key[..KEY_ID_LEN],
-                signature
+                signature,
+                header_names
             );
 
             self.headers_mut().insert(
@@ -125,7 +161,7 @@ date: {}"#,
     #[cfg(test)]
     mod tests {
         use chrono::{offset::TimeZone, Utc};
-        use http::header::{AUTHORIZATION, CONTENT_TYPE, DATE, HOST};
+        use http::header::{HeaderName, AUTHORIZATION, CONTENT_TYPE, DATE, HOST};
 
         use super::HttpSigExt;
 
@@ -149,7 +185,13 @@ date: {}"#,
                 .unwrap();
 
             assert_eq!(with_sig.headers().get(AUTHORIZATION).unwrap(), "Signature keyId=\"abcdefgh\",algorithm=\"hmac-sha256\",signature=\"2fZGHoEIscD9Kak7lxSmKgwk6KZEYiE+rm3s1qMtj8w=\",headers=\"(request-target) host date digest");
+            assert_eq!(
+                with_sig
+                    .headers()
+                    .get(HeaderName::from_static("digest"))
+                    .unwrap(),
+                "SHA-256=2vgEVkfe4d6VW+tSWAziO7BUx7uT/rA9hn1EoxUJi2o="
+            );
         }
     }
-
 }

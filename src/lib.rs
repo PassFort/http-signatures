@@ -49,25 +49,19 @@ mod reqwest {
         MissingHeaderValue(http::header::HeaderName),
     }
 
-                fn get_header_value<'a>(
-                    req: &'a ::reqwest::Request,
-                    name: &HeaderName,
-                ) -> Option<HeaderValue> {
-                    let from_headers = req.headers().get(name).cloned();
-                    match name {
-                        HOST => from_headers.or_else(|| {
-                            req.url()
-                                .host_str()
-                                .map(HeaderValue::from_str)
-                                .and_then(Result::ok)
+    fn get_header_value<'a>(req: &'a ::reqwest::Request, name: &HeaderName) -> Option<HeaderValue> {
+        let from_headers = req.headers().get(name).cloned();
+        match name {
+            HOST => from_headers.or_else(|| {
+                req.url()
+                    .host_str()
+                    .map(HeaderValue::from_str)
+                    .and_then(Result::ok)
+            }),
+            header => from_headers,
+        }
+    }
 
-                        }),
-                        header => from_headers,
-                    }
-                }
-
-
-    
     impl HttpSigExt for ::reqwest::Request {
         type Error = ReqwestSignatureError;
 
@@ -101,7 +95,7 @@ mod reqwest {
                 path,
                 date
             );
-            
+
             for (header, value) in &headers {
                 let from_req = get_header_value(&self, &header);
 
@@ -136,11 +130,18 @@ mod reqwest {
                 );
             }
 
-            let header_names = format!("(request-target) date {} digest", headers.iter().map(|(name, _)| name.as_str()).collect::<Vec<_>>().join(" "));
-            
+            let header_names = format!(
+                "(request-target) date {} digest",
+                headers
+                    .iter()
+                    .map(|(name, _)| name.as_str())
+                    .collect::<Vec<_>>()
+                    .join(" ")
+            );
+
             let signature = signature(key, dbg!(bytes_to_sign).as_bytes())
                 .map_err(ReqwestSignatureError::KeyNotBase64)?;
-            
+
             let auth_header = format!(
                 r#"Signature keyId="{}",algorithm="hmac-sha256",signature="{}",headers="{}"#,
                 &key[..KEY_ID_LEN],

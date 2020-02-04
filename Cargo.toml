@@ -1,10 +1,16 @@
 [package]
 name = "http-sig"
+description = "Implementation of the IETF draft 'Signing HTTP Messages'"
 version = "0.1.0"
-authors = ["Jack Cargill <jack@passfort.com>"]
+authors = ["Jack Cargill <jack@passfort.com>", "Diggory Blake"]
 edition = "2018"
+license = "MIT/Apache-2.0"
+documentation = "https://docs.rs/crate/http-sig"
+repository = "https://github.com/PassFort/http-signatures"
+homepage = "https://github.com/PassFort/http-signatures"
 
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+[package.metadata.docs.rs]
+all-features = true
 
 [dependencies]
 chrono = "0.4.10"
@@ -12,8 +18,4 @@ hmac = "0.7.1"
 http = "0.2.0"
 sha2 = "0.8.1"
 base64 = "0.11.0"
-reqwest = {version = "0.10.1", optional = true}
-
-
-[features]
-reqwest_client = ["reqwest"]
+reqwest = {version = "0.10.1", features = ["blocking"], optional = true}

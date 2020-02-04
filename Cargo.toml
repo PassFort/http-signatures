@@ -4,6 +4,7 @@ description = "Implementation of the IETF draft 'Signing HTTP Messages'"
 version = "0.1.0"
 authors = ["Jack Cargill <jack@passfort.com>", "Diggory Blake"]
 edition = "2018"
+readme = "README.md"
 license = "MIT/Apache-2.0"
 documentation = "https://docs.rs/crate/http-sig"
 repository = "https://github.com/PassFort/http-signatures"

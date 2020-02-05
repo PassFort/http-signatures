@@ -1,6 +1,7 @@
 use std::cmp::Ordering;
+use std::str::FromStr;
 
-use http::header::HeaderName;
+use http::header::{HeaderName, InvalidHeaderName};
 
 #[derive(Debug, Copy, Clone, PartialOrd, Ord, PartialEq, Eq)]
 #[non_exhaustive]
@@ -12,6 +13,16 @@ impl PseudoHeader {
     pub fn as_str(&self) -> &str {
         match self {
             PseudoHeader::RequestTarget => "(request-target)",
+        }
+    }
+}
+
+impl FromStr for PseudoHeader {
+    type Err = ();
+    fn from_str(s: &str) -> Result<PseudoHeader, Self::Err> {
+        match s {
+            "(request-target)" => Ok(PseudoHeader::RequestTarget),
+            _ => Err(()),
         }
     }
 }
@@ -28,6 +39,15 @@ impl Header {
             Header::Pseudo(h) => h.as_str(),
             Header::Normal(h) => h.as_str(),
         }
+    }
+}
+
+impl FromStr for Header {
+    type Err = InvalidHeaderName;
+    fn from_str(s: &str) -> Result<Header, Self::Err> {
+        PseudoHeader::from_str(s)
+            .map(Into::into)
+            .or_else(|_| HeaderName::from_str(s).map(Into::into))
     }
 }
 

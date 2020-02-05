@@ -1,20 +1,22 @@
-use hmac::{Hmac, Mac};
-use sha2::{Digest, Sha256};
+use std::fmt::Debug;
 
-pub trait HttpSignatureAlgorithm {
-    const NAME: &'static str;
+use hmac::{Hmac, Mac};
+use sha2::{Digest, Sha256, Sha512};
+
+pub trait HttpSignature: Debug + Send + Sync + 'static {
+    fn name(&self) -> &str;
     fn http_sign(&self, bytes_to_sign: &[u8]) -> String;
 }
 
-pub trait HttpDigestAlgorithm {
-    const NAME: &'static str;
-    fn http_digest(bytes_to_digest: &[u8]) -> String;
+pub trait HttpDigest: Debug + Send + Sync + 'static {
+    fn name(&self) -> &str;
+    fn http_digest(&self, bytes_to_digest: &[u8]) -> String;
 }
 
-pub struct InvalidKey;
-
-impl HttpSignatureAlgorithm for Hmac<Sha256> {
-    const NAME: &'static str = "hmac-sha256";
+impl HttpSignature for Hmac<Sha256> {
+    fn name(&self) -> &str {
+        "hmac-sha256"
+    }
     fn http_sign(&self, bytes_to_sign: &[u8]) -> String {
         let mut mac = self.clone();
         mac.input(bytes_to_sign);
@@ -22,9 +24,20 @@ impl HttpSignatureAlgorithm for Hmac<Sha256> {
     }
 }
 
-impl HttpDigestAlgorithm for Sha256 {
-    const NAME: &'static str = "SHA-256";
-    fn http_digest(bytes_to_digest: &[u8]) -> String {
-        base64::encode(&Sha256::digest(bytes_to_digest))
+impl HttpDigest for Sha256 {
+    fn name(&self) -> &str {
+        "SHA-256"
+    }
+    fn http_digest(&self, bytes_to_digest: &[u8]) -> String {
+        base64::encode(&Self::digest(bytes_to_digest))
+    }
+}
+
+impl HttpDigest for Sha512 {
+    fn name(&self) -> &str {
+        "SHA-512"
+    }
+    fn http_digest(&self, bytes_to_digest: &[u8]) -> String {
+        base64::encode(&Self::digest(bytes_to_digest))
     }
 }

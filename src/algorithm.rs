@@ -3,13 +3,32 @@ use std::fmt::Debug;
 use hmac::{Hmac, Mac};
 use sha2::{Digest, Sha256, Sha512};
 
+/// Implementations of this trait correspond to signature algorithms
+/// listed here:
+/// https://tools.ietf.org/id/draft-cavage-http-signatures-12.html#hsa-registry
+///
+/// If the HTTP signatures draft is accepted, these will be moved to a registry
+/// managed by the IANA.
 pub trait HttpSignature: Debug + Send + Sync + 'static {
+    /// Must return the name exactly as specified in the above list of HTTP
+    /// signature algorithms.
     fn name(&self) -> &str;
+    /// Returns the encoded signature, ready for inclusion in the HTTP Authorization
+    /// header. For all currently supported signature schemes, the encoding is
+    /// specified to be base64.
     fn http_sign(&self, bytes_to_sign: &[u8]) -> String;
 }
 
+/// Implementations of this trait correspond to digest algorithms
+/// listed here:
+/// https://www.iana.org/assignments/http-dig-alg/http-dig-alg.xhtml
 pub trait HttpDigest: Debug + Send + Sync + 'static {
+    /// Must return the name exactly as specified in the above list of HTTP
+    /// digest algorithms.
     fn name(&self) -> &str;
+    /// Returns the encoded digest, ready for inclusion in the HTTP Digest
+    /// header. The encoding to use is specified in the above list of HTTP digest
+    /// algorithms.
     fn http_digest(&self, bytes_to_digest: &[u8]) -> String;
 }
 

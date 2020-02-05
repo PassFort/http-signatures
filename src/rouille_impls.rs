@@ -7,7 +7,14 @@ use http::header::HeaderValue;
 
 use super::*;
 
-pub enum RouilleBody<'a> {
+/// In order to verify the signature on a rouille request, the request body must
+/// be consumed by the verification process. This type is used to return the request body
+/// contents on completion of a successful signature verification.
+///
+/// The `std::io::Read` trait is implemented for this type.
+pub struct RouilleBody<'a>(RouilleBodyInner<'a>);
+
+enum RouilleBodyInner<'a> {
     Digested(Result<Cursor<Vec<u8>>, io::Error>),
     Undigested(rouille::RequestBody<'a>),
 }
@@ -20,10 +27,11 @@ impl<'a> Debug for RouilleBody<'a> {
 
 impl<'a> Read for RouilleBody<'a> {
     fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
+        use RouilleBodyInner::*;
         match self {
-            RouilleBody::Digested(Ok(x)) => x.read(buf),
-            RouilleBody::Digested(Err(e)) => Err(mem::replace(e, io::ErrorKind::Other.into())),
-            RouilleBody::Undigested(x) => x.read(buf),
+            RouilleBody(Digested(Ok(x))) => x.read(buf),
+            RouilleBody(Digested(Err(e))) => Err(mem::replace(e, io::ErrorKind::Other.into())),
+            RouilleBody(Undigested(x)) => x.read(buf),
         }
     }
 }
@@ -46,12 +54,14 @@ impl<'a> ServerRequestLike for &'a rouille::Request {
         if let Some(mut body) = self.data() {
             let mut result = Vec::new();
             if let Err(e) = body.read_to_end(&mut result) {
-                (None, Some(RouilleBody::Digested(Err(e))))
+                (None, Some(RouilleBody(RouilleBodyInner::Digested(Err(e)))))
             } else {
                 let computed_digest = digest.http_digest(&result);
                 (
                     Some(computed_digest),
-                    Some(RouilleBody::Digested(Ok(Cursor::new(result)))),
+                    Some(RouilleBody(RouilleBodyInner::Digested(Ok(Cursor::new(
+                        result,
+                    ))))),
                 )
             }
         } else {
@@ -59,7 +69,9 @@ impl<'a> ServerRequestLike for &'a rouille::Request {
         }
     }
     fn complete(self) -> Self::Remnant {
-        self.data().map(RouilleBody::Undigested)
+        self.data()
+            .map(RouilleBodyInner::Undigested)
+            .map(RouilleBody)
     }
 }
 

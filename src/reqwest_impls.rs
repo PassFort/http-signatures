@@ -1,3 +1,7 @@
+use std::convert::TryInto;
+
+use http::header::{HeaderName, HeaderValue};
+
 use super::*;
 
 impl ClientRequestLike for reqwest::Request {
@@ -14,8 +18,8 @@ impl ClientRequestLike for reqwest::Request {
             }
         }
     }
-    fn compute_digest<D: HttpDigestAlgorithm>(&mut self) -> Option<String> {
-        self.body()?.as_bytes().map(D::http_digest)
+    fn compute_digest(&mut self, digest: &dyn HttpDigest) -> Option<String> {
+        self.body()?.as_bytes().map(|b| digest.http_digest(b))
     }
     fn set_header(&mut self, header: HeaderName, value: HeaderValue) {
         self.headers_mut().insert(header, value);
@@ -36,7 +40,7 @@ impl ClientRequestLike for reqwest::blocking::Request {
             }
         }
     }
-    fn compute_digest<D: HttpDigestAlgorithm>(&mut self) -> Option<String> {
+    fn compute_digest(&mut self, _digest: &dyn HttpDigest) -> Option<String> {
         None
     }
     fn set_header(&mut self, header: HeaderName, value: HeaderValue) {
@@ -47,13 +51,13 @@ impl ClientRequestLike for reqwest::blocking::Request {
 #[cfg(test)]
 mod tests {
     use chrono::{offset::TimeZone, Utc};
-    use http::header::CONTENT_TYPE;
+    use http::header::{AUTHORIZATION, CONTENT_TYPE, DATE};
 
     use super::*;
 
     #[test]
     fn it_works() {
-        let config = HttpSignatureConfig::new_default("abcdefgh".as_bytes());
+        let config = SigningConfig::new_default("test_key", "abcdefgh".as_bytes());
 
         let client = reqwest::Client::new();
 
@@ -73,7 +77,7 @@ mod tests {
 
         let with_sig = without_sig.signed(&config).unwrap();
 
-        assert_eq!(with_sig.headers().get(AUTHORIZATION).unwrap(), "Signature algorithm=\"hmac-sha256\",signature=\"uH2I9FSuCGUrIEygs7hR29oz0Afkz0bZyHpz6cW/mLQ=\",headers=\"(request-target) date digest host");
+        assert_eq!(with_sig.headers().get(AUTHORIZATION).unwrap(), "Signature keyId=\"test_key\",algorithm=\"hmac-sha256\",signature=\"uH2I9FSuCGUrIEygs7hR29oz0Afkz0bZyHpz6cW/mLQ=\",headers=\"(request-target) date digest host");
         assert_eq!(
             with_sig
                 .headers()
@@ -86,8 +90,7 @@ mod tests {
     #[test]
     #[ignore]
     fn it_can_talk_to_reference_integration() {
-        let config = HttpSignatureConfig::new_default(&base64::decode("dummykey").unwrap())
-            .with_key_id(Some("dummykey"));
+        let config = SigningConfig::new_default("dummykey", &base64::decode("dummykey").unwrap());
 
         let client = reqwest::blocking::Client::new();
 
@@ -100,6 +103,5 @@ mod tests {
 
         let result = client.execute(req).unwrap();
         println!("{:?}", result.text().unwrap());
-        assert!(false);
     }
 }

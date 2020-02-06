@@ -3,7 +3,7 @@ use std::str::FromStr;
 
 use http::header::{HeaderName, InvalidHeaderName};
 
-/// Pseudo-headers are used to incorporate addition information into a HTTP
+/// Pseudo-headers are used to incorporate additional information into a HTTP
 /// signature for which there is no corresponding HTTP header.
 ///
 /// They are described as "special headers" in the draft specification:

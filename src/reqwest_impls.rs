@@ -40,8 +40,9 @@ impl ClientRequestLike for reqwest::blocking::Request {
             }
         }
     }
-    fn compute_digest(&mut self, _digest: &dyn HttpDigest) -> Option<String> {
-        None
+    fn compute_digest(&mut self, digest: &dyn HttpDigest) -> Option<String> {
+        let bytes_to_digest = self.body_mut().as_mut()?.buffer().ok()?;
+        Some(digest.http_digest(bytes_to_digest))
     }
     fn set_header(&mut self, header: HeaderName, value: HeaderValue) {
         self.headers_mut().insert(header, value);

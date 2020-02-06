@@ -14,15 +14,29 @@ This crate is intended to be used with multiple different HTTP clients and/or se
 As such, client/server-specific implementations are gated by correspondingly named
 features.
 
-Supported crates:
+### Supported crates:
 
 | Crate / Feature name                              | Client/Server | Notes                                                         |
 | ------------------------------------------------- | ------------- | ------------------------------------------------------------- |
 | [reqwest](https://crates.io/crates/reqwest)       | Client        | Supports blocking and non-blocking requests.<sup>1</sup>      |
+| [rouille](https://crates.io/crates/rouille)       | Server        |                                                               |
 
 1. Due to limitations of the reqwest API, digests can only be calculated automatically for non-blocking non-streaming requests. For
    blocking or streaming requests, the user must add the digest manually before signing the request, or else the `Digest` header will
    not be included in the signature.
+
+### Supported signature algorithms:
+
+Algorithm registry: https://tools.ietf.org/id/draft-cavage-http-signatures-12.html#hsa-registry
+
+- `hmac-sha256`
+
+### Supported digest algorithms:
+
+Digest registry: https://www.iana.org/assignments/http-dig-alg/http-dig-alg.xhtml
+
+- `SHA-256`
+- `SHA-512`
 
 ## License
 

@@ -2,6 +2,7 @@ use std::fmt::Debug;
 
 use hmac::{Hmac, Mac};
 use sha2::{Digest, Sha256, Sha512};
+use subtle::ConstantTimeEq;
 
 /// Implementations of this trait correspond to signature algorithms
 /// listed here:
@@ -17,6 +18,10 @@ pub trait HttpSignature: Debug + Send + Sync + 'static {
     /// header. For all currently supported signature schemes, the encoding is
     /// specified to be base64.
     fn http_sign(&self, bytes_to_sign: &[u8]) -> String;
+    /// Returns true if the signature is valid for the provided content. The
+    /// implementation should be sure to perform any comparisons in constant
+    /// time.
+    fn http_verify(&self, bytes_to_verify: &[u8], signature: &str) -> bool;
 }
 
 /// Implementations of this trait correspond to digest algorithms
@@ -40,6 +45,13 @@ impl HttpSignature for Hmac<Sha256> {
         let mut mac = self.clone();
         mac.input(bytes_to_sign);
         base64::encode(&mac.result().code())
+    }
+    fn http_verify(&self, bytes_to_verify: &[u8], signature: &str) -> bool {
+        let expected_signature = self.http_sign(bytes_to_verify);
+        expected_signature
+            .as_bytes()
+            .ct_eq(signature.as_bytes())
+            .into()
     }
 }
 

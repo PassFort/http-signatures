@@ -35,10 +35,10 @@ impl<Remnant> VerifyingError<Remnant> {
 /// You do not need to implement this yourself: the `SimpleKeyProvider` type provides an
 /// key store that should be suitable for many situations.
 pub trait KeyProvider: Debug + Sync + 'static {
-    /// Given the name of an algorithm (eg. `hmac-sha256`) and the key ID, return an
-    /// appropriate key and algorithm. Returns `None` if no appropriate key/algorithm
+    /// Given the name of an algorithm (eg. `hmac-sha256`) and the key ID, return a set
+    /// of possible keys and algorithms. Returns an empty Vec if no appropriate key/algorithm
     /// combination could be found.
-    fn provide_key(&self, name: Option<&str>, key_id: &str) -> Option<&dyn HttpSignature>;
+    fn provide_keys(&self, name: Option<&str>, key_id: &str) -> Vec<Arc<dyn HttpSignature>>;
 }
 
 /// Implementation of a simple key store.
@@ -82,17 +82,16 @@ impl SimpleKeyProvider {
 }
 
 impl KeyProvider for SimpleKeyProvider {
-    fn provide_key(&self, name: Option<&str>, key_id: &str) -> Option<&dyn HttpSignature> {
-        for key in self.keys.get(key_id)? {
-            if let Some(alg_name) = name {
-                if key.name().eq_ignore_ascii_case(alg_name) {
-                    return Some(&**key);
-                }
-            } else {
-                return Some(&**key);
-            }
-        }
-        None
+    fn provide_keys(&self, name: Option<&str>, key_id: &str) -> Vec<Arc<dyn HttpSignature>> {
+        // `hs2019` is a special value that could mean any algorithm
+        let name = name.filter(|n| !n.eq_ignore_ascii_case("hs2019"));
+        self.keys
+            .get(key_id)
+            .unwrap_or(&Vec::new())
+            .iter()
+            .filter(|alg| name.map_or(true, |n| alg.name().eq_ignore_ascii_case(n)))
+            .cloned()
+            .collect()
     }
 }
 
@@ -321,6 +320,19 @@ pub trait ServerRequestLike {
     fn complete(self) -> Self::Remnant;
 }
 
+/// Contains information about a successfully validated request.
+#[derive(Debug)]
+pub struct VerificationDetails {
+    key_id: String,
+}
+
+impl VerificationDetails {
+    /// Returns the ID of the key used to validate this request's signature.
+    pub fn key_id(&self) -> &str {
+        &self.key_id
+    }
+}
+
 /// Import this trait to get access to access the `verify` method on all types implementing
 /// `ServerRequestLike`.
 pub trait VerifyingExt {
@@ -333,13 +345,13 @@ pub trait VerifyingExt {
     fn verify(
         self,
         config: &VerifyingConfig,
-    ) -> Result<Self::Remnant, VerifyingError<Self::Remnant>>;
+    ) -> Result<(Self::Remnant, VerificationDetails), VerifyingError<Self::Remnant>>;
 }
 
 fn verify_signature_only<T: ServerRequestLike>(
     req: &T,
     config: &VerifyingConfig,
-) -> Option<BTreeMap<Header, HeaderValue>> {
+) -> Option<(BTreeMap<Header, HeaderValue>, VerificationDetails)> {
     let auth_header = req.header(&AUTHORIZATION.into())?;
     let mut auth_header = auth_header.to_str().ok()?.splitn(2, ' ');
 
@@ -362,9 +374,12 @@ fn verify_signature_only<T: ServerRequestLike>(
         })
         .collect::<Option<BTreeMap<_, _>>>()?;
 
-    let key_id = auth_args.get("keyId")?;
+    let key_id = *auth_args.get("keyId")?;
     let provided_signature = auth_args.get("signature")?;
     let algorithm_name = auth_args.get("algorithm").copied();
+    let verification_details = VerificationDetails {
+        key_id: key_id.into(),
+    };
 
     // We deviate from the spec here, which says the default should be '(created)'. However, this is only valid
     // for asymmetric signatures, which we don't support.
@@ -377,7 +392,10 @@ fn verify_signature_only<T: ServerRequestLike>(
         .collect();
 
     // Find the appropriate key
-    let algorithm = config.key_provider.provide_key(algorithm_name, key_id)?;
+    let algorithms = config.key_provider.provide_keys(algorithm_name, key_id);
+    if algorithms.is_empty() {
+        return None;
+    }
 
     // Parse header names
     let header_vec = headers
@@ -396,26 +414,20 @@ fn verify_signature_only<T: ServerRequestLike>(
         .collect::<Option<Vec<_>>>()?;
     let content = content_vec.join("\n");
 
-    // Sign the content
-    let expected_signature = algorithm.http_sign(content.as_bytes());
-
-    // Perform constant time comparison
-    if expected_signature
-        .as_bytes()
-        .ct_eq(provided_signature.as_bytes())
-        .into()
-    {
-        Some(header_vec.into_iter().collect())
-    } else {
-        None
+    // Verify the signature of the content
+    for algorithm in algorithms {
+        if algorithm.http_verify(content.as_bytes(), provided_signature) {
+            return Some((header_vec.into_iter().collect(), verification_details));
+        }
     }
+    None
 }
 
 fn verify_except_digest<T: ServerRequestLike>(
     req: &T,
     config: &VerifyingConfig,
-) -> Option<BTreeMap<Header, HeaderValue>> {
-    let headers = verify_signature_only(req, config)?;
+) -> Option<(BTreeMap<Header, HeaderValue>, VerificationDetails)> {
+    let (headers, verification_details) = verify_signature_only(req, config)?;
 
     // Check that all the required headers are set
     for header in &config.required_headers {
@@ -451,7 +463,7 @@ fn verify_except_digest<T: ServerRequestLike>(
         }
     }
 
-    Some(headers)
+    Some((headers, verification_details))
 }
 
 impl<T: ServerRequestLike> VerifyingExt for T {
@@ -460,13 +472,14 @@ impl<T: ServerRequestLike> VerifyingExt for T {
     fn verify(
         self,
         config: &VerifyingConfig,
-    ) -> Result<Self::Remnant, VerifyingError<Self::Remnant>> {
+    ) -> Result<(Self::Remnant, VerificationDetails), VerifyingError<Self::Remnant>> {
         let digest_header: Header = HeaderName::from_static("digest").into();
 
         // Check everything but the digest first, as that doesn't require consuming
         // the request.
-        let headers = if let Some(headers) = verify_except_digest(&self, config) {
-            headers
+        let (headers, verification_details) = if let Some(res) = verify_except_digest(&self, config)
+        {
+            res
         } else {
             return Err(VerifyingError {
                 remnant: self.complete(),
@@ -511,7 +524,7 @@ impl<T: ServerRequestLike> VerifyingExt for T {
                                 .ct_eq(expected_digest.as_bytes())
                                 .into() =>
                         {
-                            Ok(remnant)
+                            Ok((remnant, verification_details))
                         }
                         _ => Err(VerifyingError { remnant }),
                     }
@@ -523,7 +536,7 @@ impl<T: ServerRequestLike> VerifyingExt for T {
                 }
             } else {
                 // We are not expected to validate the digest
-                Ok(self.complete())
+                Ok((self.complete(), verification_details))
             }
         } else if config.require_digest {
             // We require a digest for requests with a body, but we didn't get one. Either the request
@@ -536,11 +549,11 @@ impl<T: ServerRequestLike> VerifyingExt for T {
                 Err(VerifyingError { remnant })
             } else {
                 // No body, so request if fine.
-                Ok(remnant)
+                Ok((remnant, verification_details))
             }
         } else {
             // We do not require a digest, valid or otherwise.
-            Ok(self.complete())
+            Ok((self.complete(), verification_details))
         }
     }
 }

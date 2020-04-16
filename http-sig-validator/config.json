@@ -1,0 +1,3 @@
+{
+    "generator": "../target/release/http-sig-validator"
+}

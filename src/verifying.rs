@@ -1,5 +1,6 @@
 use std::collections::{BTreeMap, BTreeSet, HashMap};
-use std::fmt::Debug;
+use std::error::Error;
+use std::fmt::{self, Debug, Display};
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -8,7 +9,7 @@ use http::header::{HeaderName, HeaderValue, AUTHORIZATION, DATE};
 use sha2::{Digest, Sha256, Sha512};
 use subtle::ConstantTimeEq;
 
-use crate::algorithm::{HttpDigest, HttpSignature};
+use crate::algorithm::{HttpDigest, HttpSignatureVerify};
 use crate::header::{Header, PseudoHeader};
 use crate::{DefaultDigestAlgorithm, DATE_FORMAT};
 
@@ -29,6 +30,14 @@ impl<Remnant> VerifyingError<Remnant> {
     }
 }
 
+impl<Remnant: Debug> Error for VerifyingError<Remnant> {}
+
+impl<Remnant> Display for VerifyingError<Remnant> {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        f.write_str("VerifyingError")
+    }
+}
+
 /// The verification process will use this trait to find the appropriate key and algorithm
 /// to use for verifying a request.
 ///
@@ -38,7 +47,7 @@ pub trait KeyProvider: Debug + Sync + 'static {
     /// Given the name of an algorithm (eg. `hmac-sha256`) and the key ID, return a set
     /// of possible keys and algorithms. Returns an empty Vec if no appropriate key/algorithm
     /// combination could be found.
-    fn provide_keys(&self, name: Option<&str>, key_id: &str) -> Vec<Arc<dyn HttpSignature>>;
+    fn provide_keys(&self, name: Option<&str>, key_id: &str) -> Vec<Arc<dyn HttpSignatureVerify>>;
 }
 
 /// Implementation of a simple key store.
@@ -48,7 +57,7 @@ pub trait KeyProvider: Debug + Sync + 'static {
 /// that Key ID will be used.
 #[derive(Debug, Default, Clone)]
 pub struct SimpleKeyProvider {
-    keys: HashMap<String, Vec<Arc<dyn HttpSignature>>>,
+    keys: HashMap<String, Vec<Arc<dyn HttpSignatureVerify>>>,
 }
 
 impl SimpleKeyProvider {
@@ -58,7 +67,7 @@ impl SimpleKeyProvider {
     where
         I: IntoIterator<Item = (S, K)>,
         S: Into<String>,
-        K: Into<Arc<dyn HttpSignature>>,
+        K: Into<Arc<dyn HttpSignatureVerify>>,
     {
         let mut keys: HashMap<String, Vec<_>> = HashMap::new();
         for (key_id, key) in key_iter.into_iter() {
@@ -68,8 +77,8 @@ impl SimpleKeyProvider {
     }
 
     /// Adds a key to the key store
-    pub fn add<K: Into<Arc<dyn HttpSignature>>>(&mut self, key_id: &str, key: K) {
-        self.keys.entry(key_id.into()).or_default().push(key.into());
+    pub fn add(&mut self, key_id: &str, key: Arc<dyn HttpSignatureVerify>) {
+        self.keys.entry(key_id.into()).or_default().push(key);
     }
     /// Clears all keys from the key store
     pub fn clear(&mut self) {
@@ -82,7 +91,7 @@ impl SimpleKeyProvider {
 }
 
 impl KeyProvider for SimpleKeyProvider {
-    fn provide_keys(&self, name: Option<&str>, key_id: &str) -> Vec<Arc<dyn HttpSignature>> {
+    fn provide_keys(&self, name: Option<&str>, key_id: &str) -> Vec<Arc<dyn HttpSignatureVerify>> {
         // `hs2019` is a special value that could mean any algorithm
         let name = name.filter(|n| !n.eq_ignore_ascii_case("hs2019"));
         self.keys
@@ -352,14 +361,31 @@ fn verify_signature_only<T: ServerRequestLike>(
     req: &T,
     config: &VerifyingConfig,
 ) -> Option<(BTreeMap<Header, HeaderValue>, VerificationDetails)> {
-    let auth_header = req.header(&AUTHORIZATION.into())?;
-    let mut auth_header = auth_header.to_str().ok()?.splitn(2, ' ');
+    let auth_header = req.header(&AUTHORIZATION.into()).or_else(|| {
+        info!("Verification Failed: No 'Authorization' header");
+        None
+    })?;
+    let mut auth_header = auth_header
+        .to_str()
+        .ok()
+        .or_else(|| {
+            info!("Verification Failed: Non-ascii 'Authorization' header");
+            None
+        })?
+        .splitn(2, ' ');
 
-    let auth_scheme = auth_header.next()?;
-    let auth_args = auth_header.next()?;
+    let auth_scheme = auth_header.next().or_else(|| {
+        info!("Verification Failed: Malformed 'Authorization' header");
+        None
+    })?;
+    let auth_args = auth_header.next().or_else(|| {
+        info!("Verification Failed: Malformed 'Authorization' header");
+        None
+    })?;
 
     // Check that we're using signature auth
     if !auth_scheme.eq_ignore_ascii_case("Signature") {
+        info!("Verification Failed: Not using Signature auth");
         return None;
     }
 
@@ -372,17 +398,28 @@ fn verify_signature_only<T: ServerRequestLike>(
             let v = kv.next()?.trim().trim_matches('"');
             Some((k, v))
         })
-        .collect::<Option<BTreeMap<_, _>>>()?;
+        .collect::<Option<BTreeMap<_, _>>>()
+        .or_else(|| {
+            info!("Verification Failed: Unable to parse 'Authorization' header");
+            None
+        })?;
 
-    let key_id = *auth_args.get("keyId")?;
-    let provided_signature = auth_args.get("signature")?;
+    let key_id = *auth_args.get("keyId").or_else(|| {
+        info!("Verification Failed: Missing required 'keyId' in 'Authorization' header");
+        None
+    })?;
+    let provided_signature = auth_args.get("signature").or_else(|| {
+        info!("Verification Failed: Missing required 'signature' in 'Authorization' header");
+        None
+    })?;
     let algorithm_name = auth_args.get("algorithm").copied();
+    let created = auth_args.get("created").copied();
+    let expires = auth_args.get("expires").copied();
     let verification_details = VerificationDetails {
         key_id: key_id.into(),
     };
 
-    // We deviate from the spec here, which says the default should be '(created)'. However, this is only valid
-    // for asymmetric signatures, which we don't support.
+    // Pull out the ordered list of headers
     let headers: Vec<_> = auth_args
         .get("headers")
         .copied()
@@ -394,6 +431,11 @@ fn verify_signature_only<T: ServerRequestLike>(
     // Find the appropriate key
     let algorithms = config.key_provider.provide_keys(algorithm_name, key_id);
     if algorithms.is_empty() {
+        info!(
+            "Verification Failed: Unknown key (keyId={:?}, algorithm={:?})",
+            key_id,
+            algorithm_name.unwrap_or_default()
+        );
         return None;
     }
 
@@ -401,8 +443,30 @@ fn verify_signature_only<T: ServerRequestLike>(
     let header_vec = headers
         .iter()
         .map(|header| {
-            let header_name = header.parse().ok()?;
-            let value = req.header(&header_name)?;
+            let header_name = header.parse().ok().or_else(|| {
+                info!("Verification Failed: Invalid header name '{}' in signature", header);
+                None
+            })?;
+            let value = match &header_name {
+                Header::Pseudo(PseudoHeader::Created) => created.or_else(|| {
+                    info!("Verification Failed: Missing header '(created)' which is included in the signature");
+                    None
+                })?.parse().ok().or_else(|| {
+                    info!("Verification Failed: Invalid creation date '{}'", created.unwrap_or_default());
+                    None
+                })?,
+                Header::Pseudo(PseudoHeader::Expires) => expires.or_else(|| {
+                    info!("Verification Failed: Missing header '(expires)' which is included in the signature");
+                    None
+                })?.parse().ok().or_else(|| {
+                    info!("Verification Failed: Invalid expiry date '{}'", created.unwrap_or_default());
+                    None
+                })?,
+                _ => req.header(&header_name).or_else(|| {
+                    info!("Verification Failed: Missing header '{}' which is included in the signature", header_name.as_str());
+                    None
+                })?
+            };
             Some((header_name, value))
         })
         .collect::<Option<Vec<_>>>()?;
@@ -410,7 +474,19 @@ fn verify_signature_only<T: ServerRequestLike>(
     // Build the content block
     let content_vec = header_vec
         .iter()
-        .map(|(name, value)| Some(format!("{}: {}", name.as_str(), value.to_str().ok()?)))
+        .map(|(name, value)| {
+            Some(format!(
+                "{}: {}",
+                name.as_str(),
+                value.to_str().ok().or_else(|| {
+                    info!(
+                        "Verification Failed: Non-ascii value for '{}' header",
+                        name.as_str()
+                    );
+                    None
+                })?
+            ))
+        })
         .collect::<Option<Vec<_>>>()?;
     let content = content_vec.join("\n");
 
@@ -420,6 +496,8 @@ fn verify_signature_only<T: ServerRequestLike>(
             return Some((header_vec.into_iter().collect(), verification_details));
         }
     }
+
+    info!("Verification Failed: Invalid signature provided");
     None
 }
 
@@ -432,6 +510,10 @@ fn verify_except_digest<T: ServerRequestLike>(
     // Check that all the required headers are set
     for header in &config.required_headers {
         if !headers.contains_key(header) {
+            info!(
+                "Verification Failed: Missing header '{}' required by configuration",
+                header.as_str()
+            );
             return None;
         }
     }
@@ -441,11 +523,19 @@ fn verify_except_digest<T: ServerRequestLike>(
         // If date was part of signature
         if let Some(date_value) = headers.get(&DATE.into()) {
             // First convert to a string
-            let date_value = date_value.to_str().ok()?;
+            let date_value = date_value.to_str().ok().or_else(|| {
+                info!("Verification Failed: Non-ascii value for 'date' header");
+                None
+            })?;
 
             // Then parse into a datetime
             let provided_date = DateTime::<Utc>::from_utc(
-                NaiveDateTime::parse_from_str(date_value, DATE_FORMAT).ok()?,
+                NaiveDateTime::parse_from_str(date_value, DATE_FORMAT)
+                    .ok()
+                    .or_else(|| {
+                        info!("Verification Failed: Failed to parse 'date' header");
+                        None
+                    })?,
                 Utc,
             );
 
@@ -455,9 +545,13 @@ fn verify_except_digest<T: ServerRequestLike>(
             let delta = chrono_delta
                 .to_std()
                 .or_else(|_| (-chrono_delta).to_std())
-                .ok()?;
+                .expect("Should only fail on negative values");
 
             if delta > config.date_leeway {
+                info!(
+                    "Verification Failed: Date skew of '{}' is outside allowed range",
+                    chrono_delta
+                );
                 return None;
             }
         }
@@ -494,6 +588,7 @@ impl<T: ServerRequestLike> VerifyingExt for T {
                 let digest_value = match digest_value.to_str() {
                     Ok(v) => v,
                     Err(_) => {
+                        info!("Verification Failed: Non-ascii value for 'digest' header");
                         return Err(VerifyingError {
                             remnant: self.complete(),
                         });
@@ -526,10 +621,18 @@ impl<T: ServerRequestLike> VerifyingExt for T {
                         {
                             Ok((remnant, verification_details))
                         }
-                        _ => Err(VerifyingError { remnant }),
+                        None => {
+                            info!("Verification Failed: Unable to compute digest for comparison");
+                            Err(VerifyingError { remnant })
+                        }
+                        _ => {
+                            info!("Verification Failed: Computed digest did not match the 'digest' header");
+                            Err(VerifyingError { remnant })
+                        }
                     }
                 } else {
                     // No supported digest algorithm.
+                    info!("Verification Failed: No supported digest algorithms were used");
                     Err(VerifyingError {
                         remnant: self.complete(),
                     })
@@ -546,6 +649,7 @@ impl<T: ServerRequestLike> VerifyingExt for T {
             // If the request did have a body (because we were able to compute a digest).
             if maybe_digest.is_some() {
                 // Then reject the request
+                info!("Verification Failed: 'digest' header was not included in signature, but is required by configuration");
                 Err(VerifyingError { remnant })
             } else {
                 // No body, so request if fine.

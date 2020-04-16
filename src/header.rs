@@ -18,6 +18,10 @@ pub enum PseudoHeader {
     /// For example:
     /// `get /index.html`
     RequestTarget,
+    /// Passed as part of the auth header
+    Created,
+    /// Passed as part of the auth header
+    Expires,
 }
 
 impl PseudoHeader {
@@ -25,6 +29,8 @@ impl PseudoHeader {
     pub fn as_str(&self) -> &str {
         match self {
             PseudoHeader::RequestTarget => "(request-target)",
+            PseudoHeader::Created => "(created)",
+            PseudoHeader::Expires => "(expires)",
         }
     }
 }
@@ -34,6 +40,8 @@ impl FromStr for PseudoHeader {
     fn from_str(s: &str) -> Result<PseudoHeader, Self::Err> {
         match s {
             "(request-target)" => Ok(PseudoHeader::RequestTarget),
+            "(created)" => Ok(PseudoHeader::Created),
+            "(expires)" => Ok(PseudoHeader::Expires),
             _ => Err(()),
         }
     }

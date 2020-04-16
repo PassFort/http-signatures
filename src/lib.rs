@@ -53,12 +53,14 @@
 //! let result = client.execute(req).unwrap();
 //! ```
 
-use hmac::Hmac;
 use sha2::Sha256;
 
 const DATE_FORMAT: &str = "%a, %d %b %Y %T GMT";
-type DefaultSignatureAlgorithm = Hmac<Sha256>;
+type DefaultSignatureAlgorithm = algorithm::HmacSha256;
 type DefaultDigestAlgorithm = Sha256;
+
+#[macro_use]
+mod macros;
 
 mod algorithm;
 pub use algorithm::*;
@@ -71,6 +73,10 @@ pub use signing::*;
 
 mod verifying;
 pub use verifying::*;
+
+/// Module containg a mock request type which implements both
+/// `ClientRequestLike` and `ServerRequestLike` for testing.
+pub mod mock_request;
 
 #[cfg(feature = "reqwest")]
 mod reqwest_impls;

@@ -10,8 +10,9 @@ use sha2::{Digest, Sha256, Sha512};
 use subtle::ConstantTimeEq;
 
 use crate::algorithm::{HttpDigest, HttpSignatureVerify};
+use crate::canonicalize::{CanonicalizeConfig, CanonicalizeExt};
 use crate::header::{Header, PseudoHeader};
-use crate::{DefaultDigestAlgorithm, DATE_FORMAT};
+use crate::{DefaultDigestAlgorithm, RequestLike, DATE_FORMAT};
 
 /// This error indicates that we failed to verify the request. As a result
 /// the request should be ignored.
@@ -47,7 +48,7 @@ pub trait KeyProvider: Debug + Sync + 'static {
     /// Given the name of an algorithm (eg. `hmac-sha256`) and the key ID, return a set
     /// of possible keys and algorithms. Returns an empty Vec if no appropriate key/algorithm
     /// combination could be found.
-    fn provide_keys(&self, name: Option<&str>, key_id: &str) -> Vec<Arc<dyn HttpSignatureVerify>>;
+    fn provide_keys(&self, key_id: &str) -> Vec<Arc<dyn HttpSignatureVerify>>;
 }
 
 /// Implementation of a simple key store.
@@ -91,16 +92,8 @@ impl SimpleKeyProvider {
 }
 
 impl KeyProvider for SimpleKeyProvider {
-    fn provide_keys(&self, name: Option<&str>, key_id: &str) -> Vec<Arc<dyn HttpSignatureVerify>> {
-        // `hs2019` is a special value that could mean any algorithm
-        let name = name.filter(|n| !n.eq_ignore_ascii_case("hs2019"));
-        self.keys
-            .get(key_id)
-            .unwrap_or(&Vec::new())
-            .iter()
-            .filter(|alg| name.map_or(true, |n| alg.name().eq_ignore_ascii_case(n)))
-            .cloned()
-            .collect()
+    fn provide_keys(&self, key_id: &str) -> Vec<Arc<dyn HttpSignatureVerify>> {
+        self.keys.get(key_id).unwrap_or(&Vec::new()).to_vec()
     }
 }
 
@@ -305,16 +298,11 @@ impl VerifyingConfig {
 ///
 /// Typically this trait is implemented for references or mutable references to those
 /// request types rather than for the request type itself.
-pub trait ServerRequestLike {
+pub trait ServerRequestLike: RequestLike {
     /// For some request types, the verification process may be a destructive operation.
     /// This associated type can be used to return information that might otherwise
     /// be lost.
     type Remnant;
-
-    /// Return the value for the given header, or `None` if it's not set. For normal headers
-    /// implementations should return the unmodified header only if it is present in the
-    /// original request: they should not try to "guess" the value for missing headers.
-    fn header(&self, header: &Header) -> Option<HeaderValue>;
 
     /// Complete the verification process, indicating that we want to compute a digest of the
     /// request body. This may require buffering the whole request body into memory.
@@ -413,23 +401,12 @@ fn verify_signature_only<T: ServerRequestLike>(
         None
     })?;
     let algorithm_name = auth_args.get("algorithm").copied();
-    let created = auth_args.get("created").copied();
-    let expires = auth_args.get("expires").copied();
     let verification_details = VerificationDetails {
         key_id: key_id.into(),
     };
 
-    // Pull out the ordered list of headers
-    let headers: Vec<_> = auth_args
-        .get("headers")
-        .copied()
-        .unwrap_or("date")
-        .split(' ')
-        .map(str::to_ascii_lowercase)
-        .collect();
-
     // Find the appropriate key
-    let algorithms = config.key_provider.provide_keys(algorithm_name, key_id);
+    let algorithms = config.key_provider.provide_keys(key_id);
     if algorithms.is_empty() {
         info!(
             "Verification Failed: Unknown key (keyId={:?}, algorithm={:?})",
@@ -439,65 +416,65 @@ fn verify_signature_only<T: ServerRequestLike>(
         return None;
     }
 
-    // Parse header names
-    let header_vec = headers
-        .iter()
-        .map(|header| {
-            let header_name = header.parse().ok().or_else(|| {
-                info!("Verification Failed: Invalid header name '{}' in signature", header);
+    // Determine config for canonicalization
+    let mut canonicalize_config = CanonicalizeConfig::new();
+    if let Some(headers) = auth_args.get("headers") {
+        canonicalize_config.set_headers(
+            headers
+                .split(' ')
+                .map(str::to_ascii_lowercase)
+                .map(|header| {
+                    header.parse::<Header>().ok().or_else(|| {
+                        info!("Verification Failed: Invalid header name {:?}", header);
+                        None
+                    })
+                })
+                .collect::<Option<_>>()?,
+        );
+    }
+    if let Some(created) = auth_args.get("created") {
+        canonicalize_config.set_signature_created(created.parse::<HeaderValue>().ok().or_else(
+            || {
+                info!(
+                    "Verification Failed: Invalid signature creation date {:?}",
+                    created
+                );
                 None
-            })?;
-            let value = match &header_name {
-                Header::Pseudo(PseudoHeader::Created) => created.or_else(|| {
-                    info!("Verification Failed: Missing header '(created)' which is included in the signature");
-                    None
-                })?.parse().ok().or_else(|| {
-                    info!("Verification Failed: Invalid creation date '{}'", created.unwrap_or_default());
-                    None
-                })?,
-                Header::Pseudo(PseudoHeader::Expires) => expires.or_else(|| {
-                    info!("Verification Failed: Missing header '(expires)' which is included in the signature");
-                    None
-                })?.parse().ok().or_else(|| {
-                    info!("Verification Failed: Invalid expiry date '{}'", created.unwrap_or_default());
-                    None
-                })?,
-                _ => req.header(&header_name).or_else(|| {
-                    info!("Verification Failed: Missing header '{}' which is included in the signature", header_name.as_str());
-                    None
-                })?
-            };
-            Some((header_name, value))
-        })
-        .collect::<Option<Vec<_>>>()?;
+            },
+        )?);
+    }
+    if let Some(expires) = auth_args.get("expires") {
+        canonicalize_config.set_signature_expires(expires.parse::<HeaderValue>().ok().or_else(
+            || {
+                info!(
+                    "Verification Failed: Invalid signature expires date {:?}",
+                    expires
+                );
+                None
+            },
+        )?);
+    }
 
-    // Build the content block
-    let content_vec = header_vec
-        .iter()
-        .map(|(name, value)| {
-            Some(format!(
-                "{}: {}",
-                name.as_str(),
-                value.to_str().ok().or_else(|| {
-                    info!(
-                        "Verification Failed: Non-ascii value for '{}' header",
-                        name.as_str()
-                    );
-                    None
-                })?
-            ))
+    // Canonicalize the request
+    let content = req
+        .canonicalize(&canonicalize_config)
+        .map_err(|e| {
+            info!("Canonicalization Failed: {}", e);
         })
-        .collect::<Option<Vec<_>>>()?;
-    let content = content_vec.join("\n");
+        .ok()?;
 
     // Verify the signature of the content
-    for algorithm in algorithms {
+    for algorithm in &algorithms {
         if algorithm.http_verify(content.as_bytes(), provided_signature) {
-            return Some((header_vec.into_iter().collect(), verification_details));
+            return Some((content.headers.into_iter().collect(), verification_details));
         }
     }
 
-    info!("Verification Failed: Invalid signature provided");
+    if algorithms.is_empty() {
+        info!("Verification Failed: No keys found for this keyId");
+    } else {
+        info!("Verification Failed: Invalid signature provided");
+    }
     None
 }
 

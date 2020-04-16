@@ -6,7 +6,7 @@ use openssl::rsa::Padding;
 use openssl::rsa::Rsa;
 use openssl::sign::{Signer, Verifier};
 
-use crate::{HttpSignature, HttpSignatureSign, HttpSignatureVerify};
+use crate::{HttpSignatureSign, HttpSignatureVerify};
 
 macro_rules! rsa_signature {
     ({$sign_name:ident, $verify_name:ident}($hash_alg:ident) = $name:literal) => {
@@ -63,16 +63,6 @@ macro_rules! rsa_signature {
             }
         }
 
-        impl HttpSignature for $sign_name {
-            fn name(&self) -> &str {
-                $name
-            }
-        }
-        impl HttpSignature for $verify_name {
-            fn name(&self) -> &str {
-                $name
-            }
-        }
         impl HttpSignatureSign for $sign_name {
             fn http_sign(&self, bytes_to_sign: &[u8]) -> String {
                 let mut signer = Signer::new(MessageDigest::$hash_alg(), &self.0).unwrap();
@@ -89,7 +79,6 @@ macro_rules! rsa_signature {
                 };
                 let mut verifier = Verifier::new(MessageDigest::$hash_alg(), &self.0).unwrap();
                 verifier.set_rsa_padding(Padding::PKCS1).unwrap();
-                dbg!(std::str::from_utf8(bytes_to_verify).unwrap(), signature);
                 match verifier.verify_oneshot(&tag, bytes_to_verify) {
                     Ok(true) => true,
                     Ok(false) => false,

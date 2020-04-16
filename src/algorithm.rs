@@ -3,21 +3,9 @@ use std::fmt::Debug;
 use hmac::{Hmac, Mac};
 use sha2::{Digest, Sha256, Sha512};
 
-/// Implementations of this trait correspond to signature algorithms
-/// listed here:
-/// https://tools.ietf.org/id/draft-cavage-http-signatures-12.html#hsa-registry
-///
-/// If the HTTP signatures draft is accepted, these will be moved to a registry
-/// managed by the IANA.
-pub trait HttpSignature: Debug + Send + Sync + 'static {
-    /// Must return the name exactly as specified in the above list of HTTP
-    /// signature algorithms.
-    fn name(&self) -> &str;
-}
-
 /// Implements the signing half of an HTTP signature algorithm. For symmetric
 /// algorithms the same type implements both signing and verification.
-pub trait HttpSignatureSign: HttpSignature {
+pub trait HttpSignatureSign: Debug + Send + Sync + 'static {
     /// Returns the encoded signature, ready for inclusion in the HTTP Authorization
     /// header. For all currently supported signature schemes, the encoding is
     /// specified to be base64.
@@ -26,7 +14,7 @@ pub trait HttpSignatureSign: HttpSignature {
 
 /// Implements the verification half of an HTTP signature algorithm. For symmetric
 /// algorithms the same type implements both signing and verification.
-pub trait HttpSignatureVerify: HttpSignature {
+pub trait HttpSignatureVerify: Debug + Send + Sync + 'static {
     /// Returns true if the signature is valid for the provided content. The
     /// implementation should be sure to perform any comparisons in constant
     /// time.
@@ -63,11 +51,6 @@ macro_rules! hmac_signature {
             }
         }
 
-        impl HttpSignature for $typename {
-            fn name(&self) -> &str {
-                $name
-            }
-        }
         impl HttpSignatureSign for $typename {
             fn http_sign(&self, bytes_to_sign: &[u8]) -> String {
                 let mut hmac = self.0.clone();

@@ -36,9 +36,7 @@ impl<'a> Read for RouilleBody<'a> {
     }
 }
 
-impl<'a> ServerRequestLike for &'a rouille::Request {
-    type Remnant = Option<RouilleBody<'a>>;
-
+impl RequestLike for rouille::Request {
     fn header(&self, header: &Header) -> Option<HeaderValue> {
         match header {
             Header::Normal(header) => rouille::Request::header(self, header.as_str())
@@ -51,6 +49,10 @@ impl<'a> ServerRequestLike for &'a rouille::Request {
             _ => None,
         }
     }
+}
+impl<'a> ServerRequestLike for &'a rouille::Request {
+    type Remnant = Option<RouilleBody<'a>>;
+
     fn complete_with_digest(self, digest: &dyn HttpDigest) -> (Option<String>, Self::Remnant) {
         if let Some(mut body) = self.data() {
             let mut result = Vec::new();

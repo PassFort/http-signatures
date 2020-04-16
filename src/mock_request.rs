@@ -8,7 +8,7 @@ use anyhow::Context;
 use http::{header::HeaderName, HeaderValue, Method};
 use url::Url;
 
-use crate::{ClientRequestLike, Header, HttpDigest, PseudoHeader, ServerRequestLike};
+use crate::{ClientRequestLike, Header, HttpDigest, PseudoHeader, RequestLike, ServerRequestLike};
 
 /// Generic error returned when the input to `from_reader` does not look like
 /// a HTTP request.
@@ -32,6 +32,23 @@ pub struct MockRequest {
 }
 
 impl MockRequest {
+    /// Returns the method used by this mock request
+    pub fn method(&self) -> Method {
+        self.method.clone()
+    }
+    /// Returns the path used by this mock request
+    pub fn path(&self) -> &str {
+        &self.path
+    }
+    /// Returns the headers used by this mock request
+    pub fn headers(&self) -> impl IntoIterator<Item = (&HeaderName, &HeaderValue)> {
+        &self.headers
+    }
+    /// Returns the body used by this mock request
+    pub fn body(&self) -> Option<&[u8]> {
+        self.body.as_deref()
+    }
+
     /// Constructs a new mock request
     pub fn new(method: Method, url: &str) -> Self {
         let url: Url = url.parse().unwrap();
@@ -143,10 +160,7 @@ impl MockRequest {
     }
 }
 
-impl ClientRequestLike for MockRequest {
-    fn host(&self) -> Option<String> {
-        None
-    }
+impl RequestLike for MockRequest {
     fn header(&self, header: &Header) -> Option<HeaderValue> {
         match header {
             Header::Normal(header_name) => self.headers.get(header_name).cloned(),
@@ -157,6 +171,9 @@ impl ClientRequestLike for MockRequest {
             _ => None,
         }
     }
+}
+
+impl ClientRequestLike for MockRequest {
     fn compute_digest(&mut self, digest: &dyn HttpDigest) -> Option<String> {
         self.body.as_ref().map(|b| digest.http_digest(b))
     }
@@ -168,9 +185,6 @@ impl ClientRequestLike for MockRequest {
 impl<'a> ServerRequestLike for &'a MockRequest {
     type Remnant = ();
 
-    fn header(&self, header: &Header) -> Option<HeaderValue> {
-        ClientRequestLike::header(*self, header)
-    }
     fn complete_with_digest(self, digest: &dyn HttpDigest) -> (Option<String>, Self::Remnant) {
         if let Some(body) = self.body.as_ref() {
             let computed_digest = digest.http_digest(body);
@@ -234,6 +248,7 @@ mod tests {
     }
 
     /// https://tools.ietf.org/id/draft-cavage-http-signatures-12.html#default-test
+    /// This test is currently broken in the spec, so it's been adjusted to pass...
     #[test]
     fn default_test() {
         // Expect successful validation
@@ -243,6 +258,7 @@ mod tests {
             Signature \
                 keyId=\"Test\", \
                 algorithm=\"rsa-sha256\", \
+                headers=\"date\", \
                 signature=\"SjWJWbWN7i0wzBvtPl8rbASWz5xQW6mcJmn+ibttBqtifLN7Sazz\
                 6m79cNfwwb8DMJ5cou1s7uEGKKCs+FLEEaDV5lp7q25WqS+lavg7T8hc0GppauB\
                 6hbgEKTwblDHYGEtbGmtdHgVCk9SuS13F0hZ8FD0k/5OxEPXe5WozsbM=\"\

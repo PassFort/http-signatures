@@ -4,6 +4,7 @@ use std::io;
 use std::path::PathBuf;
 use std::sync::Arc;
 
+use anyhow::Context;
 use http_sig::mock_request::MockRequest;
 use http_sig::{
     Header, RsaSha256Sign, RsaSha256Verify, SigningConfig, SigningExt, SimpleKeyProvider,
@@ -78,7 +79,7 @@ impl Opt {
         if let Some(headers) = &self.headers {
             let headers: Vec<Header> = headers
                 .split_ascii_whitespace()
-                .map(|s| s.parse())
+                .map(|s| s.parse::<Header>().with_context(|| format!("{:?}", s)))
                 .collect::<Result<_, _>>()?;
             config.set_headers(&headers);
         }

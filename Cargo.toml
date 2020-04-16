@@ -29,3 +29,4 @@ url = "2.1.1"
 hmac = "0.7.1"
 openssl = { version = "0.10.29", optional = true }
 log = "0.4.8"
+anyhow = "1.0.28"

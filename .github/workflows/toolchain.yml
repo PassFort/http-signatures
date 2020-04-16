@@ -90,8 +90,9 @@ jobs:
       - name: Checkout test repo
         uses: actions/checkout@v2
         with:
-          repository: w3c-ccg/http-signatures-test-suite
+          repository: Diggsey/http-signatures-test-suite
           path: http-signatures-test-suite
+          ref: remove-echo
 
       - name: Setup Node.js
         uses: actions/setup-node@v1

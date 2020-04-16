@@ -10,3 +10,4 @@ http-sig = { path = "..", features = ["openssl"] }
 structopt = "0.3"
 env_logger = "0.7.1"
 log = "0.4.8"
+anyhow = "1.0.28"

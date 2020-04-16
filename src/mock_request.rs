@@ -4,6 +4,7 @@ use std::error::Error;
 use std::fmt::{self, Display};
 use std::io::{BufRead, Write};
 
+use anyhow::Context;
 use http::{header::HeaderName, HeaderValue, Method};
 use url::Url;
 
@@ -93,8 +94,15 @@ impl MockRequest {
             }
 
             let mut parts = line.splitn(2, ':');
-            let header_name: HeaderName = parts.next().ok_or(ParseError)?.trim().parse()?;
-            let header_value: HeaderValue = parts.next().ok_or(ParseError)?.trim().parse()?;
+
+            let name_str = parts.next().ok_or(ParseError)?.trim();
+            let header_name: HeaderName = name_str
+                .parse()
+                .with_context(|| format!("{:?}", name_str))?;
+            let value_str = parts.next().ok_or(ParseError)?.trim();
+            let header_value: HeaderValue = value_str
+                .parse()
+                .with_context(|| format!("{:?}", value_str))?;
             headers.insert(header_name, header_value);
         };
 

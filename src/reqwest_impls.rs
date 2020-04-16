@@ -16,6 +16,7 @@ impl ClientRequestLike for reqwest::Request {
                 let path = self.url().path();
                 format!("{} {}", method, path).try_into().ok()
             }
+            _ => None,
         }
     }
     fn compute_digest(&mut self, digest: &dyn HttpDigest) -> Option<String> {
@@ -36,8 +37,15 @@ impl ClientRequestLike for reqwest::blocking::Request {
             Header::Pseudo(PseudoHeader::RequestTarget) => {
                 let method = self.method().as_str().to_ascii_lowercase();
                 let path = self.url().path();
-                format!("{} {}", method, path).try_into().ok()
+                if let Some(query) = self.url().query() {
+                    format!("{} {}?{}", method, path, query)
+                } else {
+                    format!("{} {}", method, path)
+                }
+                .try_into()
+                .ok()
             }
+            _ => None,
         }
     }
     fn compute_digest(&mut self, digest: &dyn HttpDigest) -> Option<String> {
@@ -78,7 +86,7 @@ mod tests {
 
         let with_sig = without_sig.signed(&config).unwrap();
 
-        assert_eq!(with_sig.headers().get(AUTHORIZATION).unwrap(), "Signature keyId=\"test_key\",algorithm=\"hmac-sha256\",signature=\"uH2I9FSuCGUrIEygs7hR29oz0Afkz0bZyHpz6cW/mLQ=\",headers=\"(request-target) date digest host");
+        assert_eq!(with_sig.headers().get(AUTHORIZATION).unwrap(), "Signature keyId=\"test_key\",algorithm=\"hmac-sha256\",signature=\"F8gZiriO7dtKFiP5eSZ+Oh1h61JIrAR6D5Mdh98DjqA=\",headers=\"(request-target) host date digest");
         assert_eq!(
             with_sig
                 .headers()

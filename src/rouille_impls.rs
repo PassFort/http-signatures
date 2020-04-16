@@ -48,6 +48,7 @@ impl<'a> ServerRequestLike for &'a rouille::Request {
                 let path = self.raw_url();
                 format!("{} {}", method, path).try_into().ok()
             }
+            _ => None,
         }
     }
     fn complete_with_digest(self, digest: &dyn HttpDigest) -> (Option<String>, Self::Remnant) {
@@ -80,7 +81,6 @@ mod tests {
     use std::sync::Arc;
 
     use chrono::{offset::TimeZone, Utc};
-    use hmac::Mac;
 
     use super::*;
 
@@ -88,10 +88,8 @@ mod tests {
     fn it_works() {
         let key_provider = SimpleKeyProvider::new(vec![(
             "test_key",
-            Arc::new(
-                DefaultSignatureAlgorithm::new_varkey("abcdefgh".as_bytes())
-                    .expect("HMAC can take key of any size"),
-            ) as Arc<dyn HttpSignature>,
+            Arc::new(DefaultSignatureAlgorithm::new("abcdefgh".as_bytes()))
+                as Arc<dyn HttpSignatureVerify>,
         )]);
         let config = VerifyingConfig::new(key_provider).with_validate_date(false);
 

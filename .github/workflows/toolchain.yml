@@ -79,3 +79,36 @@ jobs:
         with:
           name: code-coverage-report
           path: cobertura.xml
+
+  rfc-test-suite:
+    name: RFC Test Suite
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v2
+      
+      - name: Checkout test repo
+        uses: actions/checkout@v2
+        with:
+          repository: w3c-ccg/http-signatures-test-suite
+          path: http-signatures-test-suite
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v1
+        with:
+          node-version: '12.x'
+
+      - uses: actions-rs/toolchain@v1
+        with:
+          profile: minimal
+          toolchain: stable
+          override: true
+
+      - uses: actions-rs/cargo@v1
+        with:
+          command: build
+          args: -p http-sig-validator --release
+      
+      - run: cp http-sig-validator/config.json http-signatures-test-suite/config.json
+      - run: cd http-signatures-test-suite && npm install
+      - run: cd http-signatures-test-suite && npm test -- --inline-diffs

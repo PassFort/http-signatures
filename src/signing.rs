@@ -1,4 +1,3 @@
-use std::collections::BTreeSet;
 use std::convert::TryInto;
 use std::error::Error;
 use std::fmt;
@@ -7,10 +6,9 @@ use std::sync::Arc;
 use chrono::Utc;
 use http::header::{HeaderName, HeaderValue, AUTHORIZATION, DATE, HOST};
 
-use hmac::Mac;
 use sha2::Digest;
 
-use crate::algorithm::{HttpDigest, HttpSignature};
+use crate::algorithm::{HttpDigest, HttpSignatureSign};
 use crate::header::{Header, PseudoHeader};
 use crate::{DefaultDigestAlgorithm, DefaultSignatureAlgorithm, DATE_FORMAT};
 
@@ -57,10 +55,10 @@ impl Error for SigningError {}
 /// The configuration used for signing HTTP requests.
 #[derive(Debug, Clone)]
 pub struct SigningConfig {
-    signature: Arc<dyn HttpSignature>,
+    signature: Arc<dyn HttpSignatureSign>,
     digest: Arc<dyn HttpDigest>,
     key_id: String,
-    headers: BTreeSet<Header>,
+    headers: Vec<Header>,
     compute_digest: bool,
     add_date: bool,
     add_host: bool,
@@ -70,15 +68,12 @@ impl SigningConfig {
     /// Creates a new signing configuration using the default signature algorithm, and the
     /// specified key ID and key.
     pub fn new_default(key_id: &str, key: &[u8]) -> Self {
-        Self::new(
-            key_id,
-            DefaultSignatureAlgorithm::new_varkey(key).expect("HMAC can take key of any size"),
-        )
+        Self::new(key_id, DefaultSignatureAlgorithm::new(key))
     }
 
     /// Creates a new signing configuration using a custom signature algorithm, and the specified
     /// key ID.
-    pub fn new<SigAlg: HttpSignature>(key_id: &str, signature: SigAlg) -> Self {
+    pub fn new<SigAlg: HttpSignatureSign>(key_id: &str, signature: SigAlg) -> Self {
         SigningConfig {
             signature: Arc::new(signature),
             digest: Arc::new(DefaultDigestAlgorithm::new()),
@@ -89,9 +84,7 @@ impl SigningConfig {
                 Header::Normal(DATE),
                 Header::Normal(HeaderName::from_static("digest")),
             ]
-            .iter()
-            .cloned()
-            .collect(),
+            .to_vec(),
             compute_digest: true,
             add_date: true,
             add_host: true,
@@ -197,7 +190,7 @@ impl SigningConfig {
     ///
     /// This list contains `(request-target)`, `host`, `date` and `digest` by default.
     pub fn set_headers(&mut self, headers: &[Header]) -> &mut Self {
-        self.headers = headers.iter().cloned().collect();
+        self.headers = headers.to_vec();
         self
     }
     /// Controls the list of headers to include in the signature. Headers in this list
@@ -219,65 +212,85 @@ pub trait SigningExt: Sized {
         Ok(self)
     }
 
+    /// Compute the canonical representation of this request
+    fn canonicalize(&mut self, config: &SigningConfig) -> Result<String, SigningError>;
+
     /// Signs the request in-place according to the provided configuration.
     fn sign(&mut self, config: &SigningConfig) -> Result<(), SigningError>;
 }
 
-impl<R: ClientRequestLike> SigningExt for R {
-    fn sign(&mut self, config: &SigningConfig) -> Result<(), SigningError> {
-        let digest_header = HeaderName::from_static("digest");
+fn internal_canonicalize<R: ClientRequestLike>(
+    request: &mut R,
+    config: &SigningConfig,
+) -> Result<(String, String), SigningError> {
+    let digest_header = HeaderName::from_static("digest");
 
-        // Add missing date header
-        if config.add_date && self.header(&DATE.into()).is_none() {
-            let date = Utc::now().format(DATE_FORMAT).to_string();
-            self.set_header(
-                DATE,
-                date.try_into()
-                    .expect("Dates should always be valid header values"),
+    // Add missing date header
+    if config.add_date && request.header(&DATE.into()).is_none() {
+        let date = Utc::now().format(DATE_FORMAT).to_string();
+        request.set_header(
+            DATE,
+            date.try_into()
+                .expect("Dates should always be valid header values"),
+        );
+    }
+    // Add missing host header
+    if config.add_host && request.header(&HOST.into()).is_none() {
+        if let Some(host) = request.host() {
+            request.set_header(
+                HOST,
+                host.try_into()
+                    .expect("Host should be valid in a HTTP header"),
             );
         }
-        // Add missing host header
-        if config.add_host && self.header(&HOST.into()).is_none() {
-            if let Some(host) = self.host() {
-                self.set_header(
-                    HOST,
-                    host.try_into()
-                        .expect("Host should be valid in a HTTP header"),
-                );
-            }
+    }
+    // Add missing digest header
+    if config.compute_digest && request.header(&digest_header.clone().into()).is_none() {
+        if let Some(digest_str) = request.compute_digest(&*config.digest) {
+            let digest = format!("{}={}", config.digest.name(), digest_str);
+            request.set_header(
+                digest_header,
+                digest
+                    .try_into()
+                    .expect("Digest should be valid in a HTTP header"),
+            );
         }
-        // Add missing digest header
-        if config.compute_digest && self.header(&digest_header.clone().into()).is_none() {
-            if let Some(digest_str) = self.compute_digest(&*config.digest) {
-                let digest = format!("{}={}", config.digest.name(), digest_str);
-                self.set_header(
-                    digest_header,
-                    digest
-                        .try_into()
-                        .expect("Digest should be valid in a HTTP header"),
-                );
-            }
-        }
+    }
 
-        // Build the content block
-        let (header_vec, content_vec): (Vec<_>, Vec<_>) = config
-            .headers
-            .iter()
-            .filter_map(|header| {
-                // Lookup header values, and filter out any headers that are missing
-                self.header(&header)
-                    .as_ref()
-                    .and_then(|value| value.to_str().ok())
-                    .map(|value| (header.as_str(), value.to_owned()))
-            })
-            .map(|(header, value)| {
-                // Construct the content to be signed
-                (header, format!("{}: {}", header, value))
-            })
-            .unzip();
+    // Build the content block
+    let (header_vec, content_vec): (Vec<_>, Vec<_>) = config
+        .headers
+        .iter()
+        .filter_map(|header| {
+            // Lookup header values, and filter out any headers that are missing
+            request
+                .header(&header)
+                .as_ref()
+                .and_then(|value| value.to_str().ok())
+                .map(|value| (header.as_str(), value.to_owned()))
+        })
+        .map(|(header, value)| {
+            // Construct the content to be signed
+            (header, format!("{}: {}", header, value))
+        })
+        .unzip();
 
-        let headers = header_vec.join(" ");
-        let content = content_vec.join("\n");
+    let headers = header_vec.join(" ");
+    let content = content_vec.join("\n");
+
+    Ok((headers, content))
+}
+
+impl<R: ClientRequestLike> SigningExt for R {
+    /// Compute the canonical representation of this request
+    fn canonicalize(&mut self, config: &SigningConfig) -> Result<String, SigningError> {
+        let (_, content) = internal_canonicalize(self, config)?;
+        Ok(content)
+    }
+
+    fn sign(&mut self, config: &SigningConfig) -> Result<(), SigningError> {
+        // Canonicalize the request
+        let (headers, content) = internal_canonicalize(self, config)?;
 
         // Sign the content
         let signature = config.signature.http_sign(content.as_bytes());

@@ -4,10 +4,7 @@ use http::header::{HeaderName, HeaderValue};
 
 use super::*;
 
-impl ClientRequestLike for reqwest::Request {
-    fn host(&self) -> Option<String> {
-        self.url().host_str().map(Into::into)
-    }
+impl RequestLike for reqwest::Request {
     fn header(&self, header: &Header) -> Option<HeaderValue> {
         match header {
             Header::Normal(header_name) => self.headers().get(header_name).cloned(),
@@ -19,6 +16,12 @@ impl ClientRequestLike for reqwest::Request {
             _ => None,
         }
     }
+}
+
+impl ClientRequestLike for reqwest::Request {
+    fn host(&self) -> Option<String> {
+        self.url().host_str().map(Into::into)
+    }
     fn compute_digest(&mut self, digest: &dyn HttpDigest) -> Option<String> {
         self.body()?.as_bytes().map(|b| digest.http_digest(b))
     }
@@ -27,10 +30,7 @@ impl ClientRequestLike for reqwest::Request {
     }
 }
 
-impl ClientRequestLike for reqwest::blocking::Request {
-    fn host(&self) -> Option<String> {
-        self.url().host_str().map(Into::into)
-    }
+impl RequestLike for reqwest::blocking::Request {
     fn header(&self, header: &Header) -> Option<HeaderValue> {
         match header {
             Header::Normal(header_name) => self.headers().get(header_name).cloned(),
@@ -47,6 +47,12 @@ impl ClientRequestLike for reqwest::blocking::Request {
             }
             _ => None,
         }
+    }
+}
+
+impl ClientRequestLike for reqwest::blocking::Request {
+    fn host(&self) -> Option<String> {
+        self.url().host_str().map(Into::into)
     }
     fn compute_digest(&mut self, digest: &dyn HttpDigest) -> Option<String> {
         let bytes_to_digest = self.body_mut().as_mut()?.buffer().ok()?;
@@ -86,7 +92,7 @@ mod tests {
 
         let with_sig = without_sig.signed(&config).unwrap();
 
-        assert_eq!(with_sig.headers().get(AUTHORIZATION).unwrap(), "Signature keyId=\"test_key\",algorithm=\"hmac-sha256\",signature=\"F8gZiriO7dtKFiP5eSZ+Oh1h61JIrAR6D5Mdh98DjqA=\",headers=\"(request-target) host date digest");
+        assert_eq!(with_sig.headers().get(AUTHORIZATION).unwrap(), "Signature keyId=\"test_key\",algorithm=\"hs2019\",signature=\"F8gZiriO7dtKFiP5eSZ+Oh1h61JIrAR6D5Mdh98DjqA=\",headers=\"(request-target) host date digest");
         assert_eq!(
             with_sig
                 .headers()

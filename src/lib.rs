@@ -68,6 +68,9 @@ pub use algorithm::*;
 mod header;
 pub use header::*;
 
+mod canonicalize;
+pub use canonicalize::*;
+
 mod signing;
 pub use signing::*;
 

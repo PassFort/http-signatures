@@ -21,15 +21,18 @@ features.
 | [reqwest](https://crates.io/crates/reqwest)       | Client        | Supports blocking and non-blocking requests.<sup>1</sup>      |
 | [rouille](https://crates.io/crates/rouille)       | Server        |                                                               |
 
-1. Due to limitations of the reqwest API, digests can only be calculated automatically for non-blocking non-streaming requests. For
-   blocking or streaming requests, the user must add the digest manually before signing the request, or else the `Digest` header will
-   not be included in the signature.
+1. Due to limitations of the reqwest API, digests cannot be calculated automatically for non-blocking, streaming requests. For
+   these requests, the user must add the digest manually before signing the request, or else the `Digest` header will
+   not be included in the signature. Automatic digests for streaming requests *are* supported via the blocking API.
 
 ### Supported signature algorithms:
 
 Algorithm registry: https://tools.ietf.org/id/draft-cavage-http-signatures-12.html#hsa-registry
 
 - `hmac-sha256`
+- `hmac-sha512`
+- `rsa-sha256`
+- `rsa-sha512`
 
 ### Supported digest algorithms:
 

@@ -58,6 +58,8 @@ impl<'a> ServerRequestLike for &'a rouille::Request {
             let mut result = Vec::new();
             if let Err(e) = body.read_to_end(&mut result) {
                 (None, Some(RouilleBody(RouilleBodyInner::Digested(Err(e)))))
+            } else if result.is_empty() {
+                (None, None)
             } else {
                 let computed_digest = digest.http_digest(&result);
                 (
@@ -87,7 +89,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn it_works() {
+    fn can_verify_post_request() {
         let key_provider = SimpleKeyProvider::new(vec![(
             "test_key",
             Arc::new(DefaultSignatureAlgorithm::new("abcdefgh".as_bytes()))
@@ -109,6 +111,31 @@ mod tests {
                 ("Authorization".into(), "Signature keyId=\"test_key\",algorithm=\"hmac-sha256\",signature=\"uH2I9FSuCGUrIEygs7hR29oz0Afkz0bZyHpz6cW/mLQ=\",headers=\"(request-target) date digest host".into()),
             ],
             br#"{ "x": 1, "y": 2}"#[..].into()
+        );
+
+        request.verify(&config).unwrap();
+    }
+
+    #[test]
+    fn can_verify_get_request() {
+        let key_provider = SimpleKeyProvider::new(vec![(
+            "test_key",
+            Arc::new(DefaultSignatureAlgorithm::new("abcdefgh".as_bytes()))
+                as Arc<dyn HttpSignatureVerify>,
+        )]);
+        let config = VerifyingConfig::new(key_provider).with_validate_date(false);
+
+        let request = rouille::Request::fake_http(
+            "GET",
+            "/foo/bar",
+            vec![
+                ("Date".into(), Utc.ymd(2014, 7, 8)
+                    .and_hms(9, 10, 11)
+                    .format("%a, %d %b %Y %T GMT")
+                    .to_string()),
+                ("Authorization".into(), "Signature keyId=\"test_key\",algorithm=\"hmac-sha256\",signature=\"sGQ3hA9KB40CU1pHbRLXLvLdUWYn+c3fcfL+Sw8kIZE=\",headers=\"(request-target) date".into()),
+            ],
+            Vec::new()
         );
 
         request.verify(&config).unwrap();

@@ -46,8 +46,7 @@ macro_rules! hmac_signature {
             /// Create a new instance of the signature scheme using the
             /// provided key.
             pub fn new(key: &[u8]) -> Self {
-                Self(Hmac::new_varkey(key)
-                    .expect("Hmac construction should be infallible"))
+                Self(Hmac::new_varkey(key).expect("Hmac construction should be infallible"))
             }
         }
 

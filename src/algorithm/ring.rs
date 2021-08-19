@@ -50,7 +50,13 @@ macro_rules! rsa_signature {
         impl HttpSignatureSign for $sign_name {
             fn http_sign(&self, bytes_to_sign: &[u8]) -> String {
                 let mut tag = vec![0; self.0.public_modulus_len()];
-                self.0.sign(&signature::$sign_alg, &rand::SystemRandom::new(), bytes_to_sign, &mut tag)
+                self.0
+                    .sign(
+                        &signature::$sign_alg,
+                        &rand::SystemRandom::new(),
+                        bytes_to_sign,
+                        &mut tag,
+                    )
                     .expect("Signing should be infallible");
                 base64::encode(&tag)
             }
@@ -63,8 +69,11 @@ macro_rules! rsa_signature {
                 };
                 signature::VerificationAlgorithm::verify(
                     &signature::$verify_alg,
-                    self.0.as_slice().into(), bytes_to_verify.into(), tag.as_slice().into()
-                ).is_ok()
+                    self.0.as_slice().into(),
+                    bytes_to_verify.into(),
+                    tag.as_slice().into(),
+                )
+                .is_ok()
             }
         }
     };

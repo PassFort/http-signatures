@@ -153,7 +153,7 @@ impl MockRequest {
 
         if let Some(body) = &self.body {
             writeln!(writer)?;
-            writer.write_all(&body)?;
+            writer.write_all(body)?;
         }
 
         Ok(())

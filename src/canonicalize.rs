@@ -133,7 +133,7 @@ impl<T: RequestLike> CanonicalizeExt for T {
         let (headers, missing_headers): (Vec<_>, Vec<_>) = config
             .headers
             .as_deref()
-            .unwrap_or_else(|| DEFAULT_HEADERS)
+            .unwrap_or(DEFAULT_HEADERS)
             .iter()
             .cloned()
             .partition_map(|header| {

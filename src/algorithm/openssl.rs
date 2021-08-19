@@ -41,12 +41,16 @@ macro_rules! rsa_signature {
             /// Create a new instance of the signature scheme using the
             /// provided private key.
             pub fn new_der(private_key: &[u8]) -> Result<Self, Box<dyn std::error::Error>> {
-                Ok(Self(PKey::from_rsa(Rsa::private_key_from_der(private_key)?)?))
+                Ok(Self(PKey::from_rsa(Rsa::private_key_from_der(
+                    private_key,
+                )?)?))
             }
             /// Create a new instance of the signature scheme using the
             /// provided private key.
             pub fn new_pem(private_key: &[u8]) -> Result<Self, Box<dyn std::error::Error>> {
-                Ok(Self(PKey::from_rsa(Rsa::private_key_from_pem(private_key)?)?))
+                Ok(Self(PKey::from_rsa(Rsa::private_key_from_pem(
+                    private_key,
+                )?)?))
             }
         }
 
@@ -67,7 +71,9 @@ macro_rules! rsa_signature {
             fn http_sign(&self, bytes_to_sign: &[u8]) -> String {
                 let mut signer = Signer::new(MessageDigest::$hash_alg(), &self.0).unwrap();
                 signer.set_rsa_padding(Padding::PKCS1).unwrap();
-                let tag = signer.sign_oneshot_to_vec(bytes_to_sign).expect("Signing to be infallible");
+                let tag = signer
+                    .sign_oneshot_to_vec(bytes_to_sign)
+                    .expect("Signing to be infallible");
                 base64::encode(&tag)
             }
         }

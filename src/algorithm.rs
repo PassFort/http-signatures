@@ -46,16 +46,16 @@ macro_rules! hmac_signature {
             /// Create a new instance of the signature scheme using the
             /// provided key.
             pub fn new(key: &[u8]) -> Self {
-                Self(Hmac::new_varkey(key).expect("Hmac construction should be infallible"))
+                Self(Hmac::new_from_slice(key).expect("Hmac construction should be infallible"))
             }
         }
 
         impl HttpSignatureSign for $typename {
             fn http_sign(&self, bytes_to_sign: &[u8]) -> String {
                 let mut hmac = self.0.clone();
-                hmac.input(bytes_to_sign);
-                let tag = hmac.result().code();
-                base64::encode(tag.as_ref())
+                hmac.update(bytes_to_sign);
+                let tag = hmac.finalize().into_bytes();
+                base64::encode(tag)
             }
         }
         impl HttpSignatureVerify for $typename {
@@ -65,8 +65,8 @@ macro_rules! hmac_signature {
                     Err(_) => return false,
                 };
                 let mut hmac = self.0.clone();
-                hmac.input(bytes_to_verify);
-                hmac.verify(&tag).is_ok()
+                hmac.update(bytes_to_verify);
+                hmac.verify_slice(&tag).is_ok()
             }
         }
     };

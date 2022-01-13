@@ -474,10 +474,13 @@ impl<R: ClientRequestLike> SigningExt for R {
         // Sign the content
         let signature = config.signature.http_sign(content.as_bytes());
 
+        // Get the algorithm name
+        let sig_algo = config.signature.name();
+
         // Construct the authorization header
         let auth_header = format!(
-            r#"Signature keyId="{}",algorithm="{}",signature="{}",headers="{}"#,
-            config.key_id, "hs2019", signature, joined_headers
+            r#"Signature keyId="{}",algorithm="{}",signature="{}",headers="{}""#,
+            config.key_id, sig_algo, signature, joined_headers
         );
 
         // Attach the authorization header to the request

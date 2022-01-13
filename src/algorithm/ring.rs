@@ -60,6 +60,10 @@ macro_rules! rsa_signature {
                     .expect("Signing should be infallible");
                 base64::encode(&tag)
             }
+
+            fn name(&self) -> &str {
+                $name
+            }
         }
         impl HttpSignatureVerify for $verify_name {
             fn http_verify(&self, bytes_to_verify: &[u8], signature: &str) -> bool {

@@ -20,7 +20,7 @@ pub enum CanonicalizeError {
 pub trait RequestLike {
     /// Returns an existing header on the request. This method *must* reflect changes made
     /// be the `ClientRequestLike::set_header` method, with the possible exception of the
-    /// `Authorization` header itself.
+    /// `Signature` header itself.
     fn header(&self, header: &Header) -> Option<HeaderValue>;
 
     /// Returns true if this request contains a value for the specified header. If this

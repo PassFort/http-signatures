@@ -5,7 +5,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use chrono::{DateTime, NaiveDateTime, Utc};
-use http::header::{HeaderName, HeaderValue, AUTHORIZATION, DATE};
+use http::header::{HeaderName, HeaderValue, DATE};
 use sha2::{Digest, Sha256, Sha512};
 use subtle::ConstantTimeEq;
 
@@ -349,25 +349,26 @@ fn verify_signature_only<T: ServerRequestLike>(
     req: &T,
     config: &VerifyingConfig,
 ) -> Option<(BTreeMap<Header, HeaderValue>, VerificationDetails)> {
-    let auth_header = req.header(&AUTHORIZATION.into()).or_else(|| {
-        info!("Verification Failed: No 'Authorization' header");
+    // TODO : Signature
+    let auth_header = req.header(&http::header::AUTHORIZATION.into()).or_else(|| {
+        info!("Verification Failed: No 'Signature' header");
         None
     })?;
     let mut auth_header = auth_header
         .to_str()
         .ok()
         .or_else(|| {
-            info!("Verification Failed: Non-ascii 'Authorization' header");
+            info!("Verification Failed: Non-ascii 'Signature' header");
             None
         })?
         .splitn(2, ' ');
 
     let auth_scheme = auth_header.next().or_else(|| {
-        info!("Verification Failed: Malformed 'Authorization' header");
+        info!("Verification Failed: Malformed 'Signature' header");
         None
     })?;
     let auth_args = auth_header.next().or_else(|| {
-        info!("Verification Failed: Malformed 'Authorization' header");
+        info!("Verification Failed: Malformed 'Signature' header");
         None
     })?;
 
@@ -388,16 +389,16 @@ fn verify_signature_only<T: ServerRequestLike>(
         })
         .collect::<Option<BTreeMap<_, _>>>()
         .or_else(|| {
-            info!("Verification Failed: Unable to parse 'Authorization' header");
+            info!("Verification Failed: Unable to parse 'Signature' header");
             None
         })?;
 
     let key_id = *auth_args.get("keyId").or_else(|| {
-        info!("Verification Failed: Missing required 'keyId' in 'Authorization' header");
+        info!("Verification Failed: Missing required 'keyId' in 'Signature' header");
         None
     })?;
     let provided_signature = auth_args.get("signature").or_else(|| {
-        info!("Verification Failed: Missing required 'signature' in 'Authorization' header");
+        info!("Verification Failed: Missing required 'signature' in 'Signature' header");
         None
     })?;
     let algorithm_name = auth_args.get("algorithm").copied();

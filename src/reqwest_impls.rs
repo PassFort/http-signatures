@@ -66,7 +66,7 @@ impl ClientRequestLike for reqwest::blocking::Request {
 #[cfg(test)]
 mod tests {
     use chrono::{offset::TimeZone, Utc};
-    use http::header::{AUTHORIZATION, CONTENT_TYPE, DATE};
+    use http::header::{CONTENT_TYPE, DATE};
 
     use super::*;
 
@@ -92,7 +92,7 @@ mod tests {
 
         let with_sig = without_sig.signed(&config).unwrap();
 
-        assert_eq!(with_sig.headers().get(AUTHORIZATION).unwrap(), "Signature keyId=\"test_key\",algorithm=\"hs2019\",signature=\"F8gZiriO7dtKFiP5eSZ+Oh1h61JIrAR6D5Mdh98DjqA=\",headers=\"(request-target) host date digest");
+        assert_eq!(with_sig.headers().get("Signature").unwrap(), "keyId=\"test_key\",algorithm=\"hs2019\",signature=\"F8gZiriO7dtKFiP5eSZ+Oh1h61JIrAR6D5Mdh98DjqA=\",headers=\"(request-target) host date digest\"");
         assert_eq!(
             with_sig
                 .headers()

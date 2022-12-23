@@ -3,7 +3,7 @@ use std::sync::Arc;
 use std::time::SystemTime;
 
 use chrono::Utc;
-use http::header::{HeaderName, HeaderValue, AUTHORIZATION, DATE, HOST};
+use http::header::{HeaderName, HeaderValue, DATE, HOST};
 use itertools::Itertools;
 use thiserror::Error;
 
@@ -26,7 +26,7 @@ pub trait ClientRequestLike: RequestLike {
         None
     }
     /// Add a header to the request. This function may be used to set the `Date` and `Digest`
-    /// headers if not already present depending on the configuration. The `Authorization`
+    /// headers if not already present depending on the configuration. The `Signature`
     /// header will always be set assuming the message was signed successfully.
     fn set_header(&mut self, header: HeaderName, value: HeaderValue);
     /// Compute the digest using the provided HTTP digest algorithm. If this is not possible,
@@ -474,15 +474,15 @@ impl<R: ClientRequestLike> SigningExt for R {
         // Sign the content
         let signature = config.signature.http_sign(content.as_bytes());
 
-        // Construct the authorization header
+        // Construct the signature header
         let auth_header = format!(
-            r#"Signature keyId="{}",algorithm="{}",signature="{}",headers="{}"#,
+            "keyId=\"{}\",algorithm=\"{}\",signature=\"{}\",headers=\"{}\"",
             config.key_id, "hs2019", signature, joined_headers
         );
 
-        // Attach the authorization header to the request
+        // Attach the Signature header to the request
         self.set_header(
-            AUTHORIZATION,
+            HeaderName::from_static("signature"),
             auth_header
                 .try_into()
                 .expect("Signature scheme should generate a valid header"),

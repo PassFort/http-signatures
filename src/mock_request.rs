@@ -253,9 +253,8 @@ mod tests {
     fn default_test() {
         // Expect successful validation
         let mut req = test_request().with_header(
-            "Authorization",
+            "Signature",
             "\
-            Signature \
                 keyId=\"Test\", \
                 algorithm=\"rsa-sha256\", \
                 headers=\"date\", \
@@ -285,9 +284,8 @@ mod tests {
     fn basic_test() {
         // Expect successful validation
         let req = test_request().with_header(
-            "Authorization",
+            "Signature",
             "\
-            Signature \
                 keyId=\"Test\", \
                 algorithm=\"rsa-sha256\", \
                 headers=\"(request-target) host date\", \
@@ -313,9 +311,8 @@ mod tests {
     fn all_headers_test() {
         // Expect successful validation
         let req = test_request().with_header(
-            "Authorization",
+            "Signature",
             "\
-            Signature \
                 keyId=\"Test\", \
                 algorithm=\"rsa-sha256\", \
                 created=1402170695, \

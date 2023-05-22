@@ -80,7 +80,7 @@ impl HttpDigest for Sha256 {
         "SHA-256"
     }
     fn http_digest(&self, bytes_to_digest: &[u8]) -> String {
-        base64::encode(&Self::digest(bytes_to_digest))
+        base64::encode(Self::digest(bytes_to_digest))
     }
 }
 
@@ -89,7 +89,7 @@ impl HttpDigest for Sha512 {
         "SHA-512"
     }
     fn http_digest(&self, bytes_to_digest: &[u8]) -> String {
-        base64::encode(&Self::digest(bytes_to_digest))
+        base64::encode(Self::digest(bytes_to_digest))
     }
 }
 

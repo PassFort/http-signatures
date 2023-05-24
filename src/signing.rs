@@ -476,7 +476,7 @@ impl<R: ClientRequestLike> SigningExt for R {
 
         // Construct the authorization header
         let auth_header = format!(
-            r#"Signature keyId="{}",algorithm="{}",signature="{}",headers="{}"#,
+            r#"Signature keyId="{}",algorithm="{}",signature="{}",headers="{}""#,
             config.key_id, "hs2019", signature, joined_headers
         );
 

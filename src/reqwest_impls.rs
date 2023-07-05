@@ -11,7 +11,13 @@ impl RequestLike for reqwest::Request {
             Header::Pseudo(PseudoHeader::RequestTarget) => {
                 let method = self.method().as_str().to_ascii_lowercase();
                 let path = self.url().path();
-                format!("{} {}", method, path).try_into().ok()
+                if let Some(query) = self.url().query() {
+                    format!("{} {}?{}", method, path, query)
+                } else {
+                    format!("{} {}", method, path)
+                }
+                .try_into()
+                .ok()
             }
             _ => None,
         }
@@ -77,7 +83,7 @@ mod tests {
         let client = reqwest::Client::new();
 
         let without_sig = client
-            .post("http://test.com/foo/bar")
+            .post("http://test.com/foo/bar?test=1")
             .header(CONTENT_TYPE, "application/json")
             .header(
                 DATE,
@@ -92,7 +98,7 @@ mod tests {
 
         let with_sig = without_sig.signed(&config).unwrap();
 
-        assert_eq!(with_sig.headers().get(AUTHORIZATION).unwrap(), "Signature keyId=\"test_key\",algorithm=\"hs2019\",signature=\"F8gZiriO7dtKFiP5eSZ+Oh1h61JIrAR6D5Mdh98DjqA=\",headers=\"(request-target) host date digest\"");
+        assert_eq!(with_sig.headers().get(AUTHORIZATION).unwrap(), "Signature keyId=\"test_key\",algorithm=\"hs2019\",signature=\"WrDTJ4PdMype8XFHAXBB8IsCW4WgNyvkn+CM8Opy8LU=\",headers=\"(request-target) host date digest\"");
         assert_eq!(
             with_sig
                 .headers()

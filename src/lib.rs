@@ -83,8 +83,6 @@ pub mod mock_request;
 
 #[cfg(feature = "reqwest")]
 mod reqwest_impls;
-#[cfg(feature = "reqwest")]
-pub use reqwest_impls::*;
 
 #[cfg(feature = "rouille")]
 mod rouille_impls;

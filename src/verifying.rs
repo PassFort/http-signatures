@@ -506,7 +506,7 @@ fn verify_except_digest<T: ServerRequestLike>(
             })?;
 
             // Then parse into a datetime
-            let provided_date = DateTime::<Utc>::from_utc(
+            let provided_date = DateTime::<Utc>::from_naive_utc_and_offset(
                 NaiveDateTime::parse_from_str(date_value, DATE_FORMAT)
                     .ok()
                     .or_else(|| {

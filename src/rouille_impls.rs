@@ -103,14 +103,13 @@ mod tests {
             vec![
                 ("Host".into(), "test.com".into()),
                 ("ContentType".into(), "application/json".into()),
-                ("Date".into(), Utc.ymd(2014, 7, 8)
-                    .and_hms(9, 10, 11)
+                ("Date".into(), Utc.with_ymd_and_hms(2014, 7, 8, 9, 10, 11).single().expect("valid date")
                     .format("%a, %d %b %Y %T GMT")
                     .to_string()),
                 ("Digest".into(), "SHA-256=2vgEVkfe4d6VW+tSWAziO7BUx7uT/rA9hn1EoxUJi2o=".into()),
                 ("Authorization".into(), "Signature keyId=\"test_key\",algorithm=\"hmac-sha256\",signature=\"uH2I9FSuCGUrIEygs7hR29oz0Afkz0bZyHpz6cW/mLQ=\",headers=\"(request-target) date digest host".into()),
             ],
-            br#"{ "x": 1, "y": 2}"#[..].into()
+            br#"{ "x": 1, "y": 2}"#[..].into(),
         );
 
         request.verify(&config).unwrap();
@@ -129,13 +128,13 @@ mod tests {
             "GET",
             "/foo/bar",
             vec![
-                ("Date".into(), Utc.ymd(2014, 7, 8)
-                    .and_hms(9, 10, 11)
+                ("Date".into(), Utc.with_ymd_and_hms(2014, 7, 8,
+                    9, 10, 11).single().expect("valid date")
                     .format("%a, %d %b %Y %T GMT")
                     .to_string()),
                 ("Authorization".into(), "Signature keyId=\"test_key\",algorithm=\"hmac-sha256\",signature=\"sGQ3hA9KB40CU1pHbRLXLvLdUWYn+c3fcfL+Sw8kIZE=\",headers=\"(request-target) date".into()),
             ],
-            Vec::new()
+            Vec::new(),
         );
 
         request.verify(&config).unwrap();

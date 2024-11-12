@@ -18,8 +18,9 @@ use crate::{DefaultDigestAlgorithm, DefaultSignatureAlgorithm, DATE_FORMAT};
 /// HTTP request. The HTTP signing extension methods are available on
 /// any type implementing this trait.
 pub trait ClientRequestLike: RequestLike {
-    /// Returns the host for the request (eg. "example.com") in case the Host header has
-    /// not been set explicitly.
+    /// Returns the host for the request (eg. "example.com", "127.0.0.1:8080") in case the Host header has
+    /// not been set explicitly. Note, the correct form of the `Host` header is `<host>:<port>` if
+    /// the port is non-standard for the protocol used (e.g., 443 for an HTTPS URL, and 80 for an HTTP URL).
     /// When implementing this trait, do not just read the `Host` header from the request -
     /// this method will only be called when the `Host` header is not set.
     fn host(&self) -> Option<String> {

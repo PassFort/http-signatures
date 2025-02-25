@@ -182,7 +182,7 @@ impl ClientRequestLike for MockRequest {
     }
 }
 
-impl<'a> ServerRequestLike for &'a MockRequest {
+impl ServerRequestLike for &MockRequest {
     type Remnant = ();
 
     fn complete_with_digest(self, digest: &dyn HttpDigest) -> (Option<String>, Self::Remnant) {

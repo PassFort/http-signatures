@@ -19,13 +19,13 @@ enum RouilleBodyInner<'a> {
     Undigested(rouille::RequestBody<'a>),
 }
 
-impl<'a> Debug for RouilleBody<'a> {
+impl Debug for RouilleBody<'_> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         f.write_str("RouilleBody { .. }")
     }
 }
 
-impl<'a> Read for RouilleBody<'a> {
+impl Read for RouilleBody<'_> {
     fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
         use RouilleBodyInner::*;
         match self {
